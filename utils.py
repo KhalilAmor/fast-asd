@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, Future
+
 from custom_types import VideoSegment, Frame, Box
 from typing import List
 
@@ -57,7 +59,7 @@ def track_boxes(
 ):
     import supervision as sv
     if tracker is None:
-        tracker = sv.ByteTrack(frame_rate=fps)
+        tracker = sv.ByteTrack(frame_rate=int(fps))
     new_frames = []
     for frame in frames:
         detections = frame.supervision_detection()
@@ -110,3 +112,10 @@ def track_boxes(
             height=frame.height,
         ))
     return output_frames, tracker
+
+
+
+def get_future(method, *args, max_workers=5, **kwargs) -> Future:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future = executor.submit(method, *args, **kwargs)
+    return future
