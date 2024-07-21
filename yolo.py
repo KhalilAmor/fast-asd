@@ -1,7 +1,4 @@
 
-
-
-
 # @sieve.Model(
 #     name="yolov8",
 #     gpu=sieve.gpu.T4(split=2),
@@ -11,17 +8,17 @@
 #     python_version="3.10",
 #     metadata=metadata,
 #     run_commands=[
-#         "mkdir -p /root/.models/",
-#         "wget -O /root/.models/yolov8l-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt",
-#         "wget -O /root/.models/yolov8n-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt",
+#         "mkdir -p /tmp/yolo/models/",
+#         "wget -O /tmp/yolo/models/yolov8l-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8l-face.pt",
+#         "wget -O /tmp/yolo/models/yolov8n-face.pt https://github.com/akanametov/yolov8-face/releases/download/v0.0.0/yolov8n-face.pt",
 #         "pip install decord",
 #         "pip install 'imageio[ffmpeg]'",
 #         "pip install git+https://github.com/ultralytics/ultralytics.git@29dc1a3987eb8aa2d55d067daffdd26d14929020",
 #         "pip install av==9.2.0",
-#         "wget -O /root/.models/yolov8l.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l.pt",
-#         "wget -O /root/.models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt",
-#         "wget -O /root/.models/yolov8l-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l-worldv2.pt",
-#         "wget -O /root/.models/yolov8s-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8s-worldv2.pt",
+#         "wget -O /tmp/yolo/models/yolov8l.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l.pt",
+#         "wget -O /tmp/yolo/models/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt",
+#         "wget -O /tmp/yolo/models/yolov8l-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8l-worldv2.pt",
+#         "wget -O /tmp/yolo/models/yolov8s-worldv2.pt https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8s-worldv2.pt",
 #         "pip install dill"
 #     ]
 # )
@@ -29,12 +26,12 @@ class YOLOv8:
     def __init__(self):
         from ultralytics import YOLO
 
-        self.model = YOLO('/root/.models/yolov8l.pt')
-        self.fast_model = YOLO('/root/.models/yolov8n.pt')
-        self.face_model = YOLO("/root/.models/yolov8l-face.pt")
+        self.model = YOLO('/tmp/yolo/models/yolov8l.pt')
+        self.fast_model = YOLO('/tmp/yolo/models/yolov8n.pt')
+        self.face_model = YOLO("/tmp/yolo/models/yolov8l-face.pt")
         self.face_fast_model = self.face_model
-        self.world_model = YOLO('/root/.models/yolov8l-worldv2.pt')
-        self.world_fast_model = YOLO('/root/.models/yolov8s-worldv2.pt')
+        self.world_model = YOLO('/tmp/yolo/models/yolov8l-worldv2.pt')
+        self.world_fast_model = YOLO('/tmp/yolo/models/yolov8s-worldv2.pt')
         self.current_world_classes = None
         self.current_world_fast_classes = None
 
@@ -149,7 +146,8 @@ class YOLOv8:
             try:
                 if start_frame != 0:
                     cap.set_image_index(start_frame)
-                print(f"load & seek time: {round(time.time() - t, 2)}s")
+                print(f""
+                      f"load & seek time: {round(time.time() - t, 2)}s")
                 current_frame = cap.get_next_data()
                 current_frame = cv2.cvtColor(current_frame, cv2.COLOR_RGB2BGR)
             except IndexError:
@@ -181,7 +179,7 @@ class YOLOv8:
                     combined_boxes = []
                     for x, model_to_use in enumerate(models_to_use):
                         results = model_to_use.predict(frame_to_process, conf=confidence_threshold, verbose=False)
-                        results_dict = self.__process_results__(results, model_to_use)
+                        results_dict = self.process_results(results, model_to_use)
                         # Filter results based on confidence threshold
                         results_dict["boxes"] = [box for box in results_dict["boxes"] if
                                                  box["confidence"] > confidence_threshold]

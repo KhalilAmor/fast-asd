@@ -1,6 +1,6 @@
-import sieve
 from pydantic import BaseModel
 from typing import List
+
 
 class Scene(BaseModel):
     start_seconds: float
@@ -11,13 +11,14 @@ class Scene(BaseModel):
     start_frame: int
     end_frame: int
 
+
 def scene_detection(
-    video: sieve.File,
-    threshold: float = 27.0,
-    adaptive_threshold: bool = False,
+        video_path: str,
+        threshold: float = 27.0,
+        adaptive_threshold: bool = False,
 ) -> Scene:
     """
-    :param video: The video to detect scenes in
+    :param video_path: The video to detect scenes in
     :param threshold: Threshold the average change in pixel intensity must exceed to trigger a cut. Only used if adaptive_threshold is False.
     :param adaptive_threshold: Whether to use adaptive thresholding, which compares the difference in content between adjacent frames without a fixed threshold, and instead a rolling average of adjacent frame changes. This can help mitigate false detections in situations such as fast camera motions.
     :return: A list of scenes
@@ -28,11 +29,11 @@ def scene_detection(
     from scenedetect.video_manager import VideoManager
 
     import cv2
-    cap = cv2.VideoCapture(video.path)
+    cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     cap.release()
 
-    video_manager = VideoManager([video.path])
+    video_manager = VideoManager([video_path])
     scene_manager = SceneManager()
     if adaptive_threshold:
         scene_manager.add_detector(AdaptiveDetector())
@@ -68,6 +69,6 @@ def scene_detection(
             end_timecode=scene[1].get_timecode(),
             start_frame=scene[0].get_frames(),
             end_frame=scene[1].get_frames()
-        ).dict()
+        ).model_dump()
 
     video_manager.release()

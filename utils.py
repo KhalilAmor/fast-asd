@@ -1,7 +1,7 @@
-from concurrent.futures import ThreadPoolExecutor, Future
 
 from custom_types import VideoSegment, Frame, Box
 from typing import List
+
 
 def get_video_dimensions(path):
     import cv2
@@ -10,10 +10,14 @@ def get_video_dimensions(path):
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     return width, height
 
+
 def get_video_length(path):
     import subprocess
-    result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1',
+         path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return float(result.stdout)
+
 
 def create_video_segments(file, scene_future, start_time=0, end_time=None, fps=30, original_video_length=None):
     scene_outputs = list(scene_future)
@@ -42,20 +46,23 @@ def create_video_segments(file, scene_future, start_time=0, end_time=None, fps=3
             end_seconds = end_time
             end_frame = int(end_seconds * fps)
 
-        video_segments.append(VideoSegment(path=file.path, start=start_seconds, end=end_seconds, start_frame=start_frame, end_frame=end_frame))
+        video_segments.append(
+            VideoSegment(path=file, start=start_seconds, end=end_seconds, start_frame=start_frame,
+                         end_frame=end_frame))
 
     if len(video_segments) == 0:
         if end_time is None:
             if original_video_length is None:
-                original_video_length = get_video_length(file.path)
+                original_video_length = get_video_length(file)
             end_time = original_video_length
-        video_segments.append(VideoSegment(path=file.path, start=start_time, end=end_time))
+        video_segments.append(VideoSegment(path=file, start=start_time, end=end_time))
     return video_segments
 
+
 def track_boxes(
-    frames: List[Frame],
-    tracker = None,
-    fps: float = 30,
+        frames: List[Frame],
+        tracker=None,
+        fps: float = 30,
 ):
     import supervision as sv
     if tracker is None:
@@ -75,7 +82,7 @@ def track_boxes(
             y1 = max(0, xyxy[1])
             x2 = min(frame.width, xyxy[2])
             y2 = min(frame.height, xyxy[3])
-            
+
             new_boxes.append(Box(
                 x1=x1,
                 y1=y1,
@@ -115,7 +122,3 @@ def track_boxes(
 
 
 
-def get_future(method, *args, max_workers=5, **kwargs) -> Future:
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future = executor.submit(method, *args, **kwargs)
-    return future

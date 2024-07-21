@@ -1,5 +1,9 @@
-from talknet.main import TalkNetASD
-from utils import get_video_dimensions, get_video_length, create_video_segments, get_future
+import time
+
+from talknet import main as talknet_main
+from concurrent.futures import ThreadPoolExecutor, Future
+
+from utils import get_video_dimensions, get_video_length, create_video_segments
 from custom_types import VideoSegment, Frame, Box
 import threading
 import queue
@@ -10,11 +14,13 @@ from yolo import YOLOv8
 SPEAKER_DETECTION_IN_MEMORY_THRESHOLD = 3000
 # OBJECT_DETECTION_MODEL = "sieve/yolov8"
 object_detector = YOLOv8()
-speaker_detector = TalkNetASD()
 
-def push_video_segments_to_object_detection(video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face", processing_fps=2):
+
+def push_video_segments_to_object_detection(video_segment, file, frame_interval=600, models="yolov8l, yolov8l-face",
+                                            processing_fps=2):
     # push the video segments to object detection for every frame_interval frames
-    total_num_frames = video_segment.end_frame if video_segment.end_frame else int(video_segment.end * video_segment.fps())
+    total_num_frames = video_segment.end_frame if video_segment.end_frame else int(
+        video_segment.end * video_segment.fps())
     start = video_segment.start_frame if video_segment.start_frame else int(video_segment.start * video_segment.fps())
     sampled_box_outputs = []
     for i in range(start, total_num_frames, frame_interval):
@@ -39,6 +45,7 @@ def push_video_segments_to_object_detection(video_segment, file, frame_interval=
 
     return sampled_box_outputs
 
+
 def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
     # smooth the scores of the boxes from the speaker detection model
     active_speakers = {}
@@ -58,9 +65,12 @@ def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
                 smoothed_scores[box_id] = alpha * raw_score + (1 - alpha) * smoothed_scores[box_id]
 
             if smoothed_scores[box_id] > score_threshold:
-                active_speakers[frame_number].append(Box(class_id=-1, confidence=1.0, x1=box['x1'], y1=box['y1'], x2=box['x2'], y2=box['y2'], id=box_id, metadata={'raw_score': smoothed_scores[box_id]}))
+                active_speakers[frame_number].append(
+                    Box(class_id=-1, confidence=1.0, x1=box['x1'], y1=box['y1'], x2=box['x2'], y2=box['y2'], id=box_id,
+                        metadata={'raw_score': smoothed_scores[box_id]}))
 
     return active_speakers
+
 
 # metadata = sieve.Metadata(
 #     title="Detect Active Speakers",
@@ -95,17 +105,17 @@ def get_active_speakers(speaker_frames, alpha=0.5, score_threshold=0):
 #     ],
 # )
 def process(
-    file_path: str,
-    speed_boost: bool = False,
-    max_num_faces: int = 5,
-    return_scene_cuts_only: bool = False,
-    return_scene_data: bool = False,
-    start_time: float = 0,
-    end_time: float = -1,
-    processing_fps: float = 2,
-    face_size_threshold: float = 0.5,
+        file_path: str,
+        speed_boost: bool = False,
+        max_num_faces: int = 5,
+        return_scene_cuts_only: bool = False,
+        return_scene_data: bool = False,
+        start_time: float = 0,
+        end_time: float = -1,
+        processing_fps: float = 2,
+        face_size_threshold: float = 0.5,
 ):
-    '''
+    """
     :param file_path: The video file to process
     :param speed_boost: Whether to use the faster but less accurate object detection model when processing the video.
     :param max_num_faces: The maximum number of faces to return per frame. If there are more than this number of faces, only the largest x faces will be returned.
@@ -115,11 +125,10 @@ def process(
     :param end_time: The seconds into the video to stop processing at. Defaults to -1, which means the end of the video.
     :param processing_fps: The framerate to run object detection at for speaker detection. Defaults to 2.
     :param face_size_threshold: A threshold that determines the minimum size of a face to run speaker detection on. Defaults to 0.5. Lower values allow for smaller faces to be used.
-    '''
+    """
     # handle webm files by converting them to mp4
     if file_path.endswith(".webm"):
         print("Converting webm file to mp4...")
-        import os
         import subprocess
         new_path = file_path.replace(".webm", ".mp4")
         subprocess.run(["ffmpeg", "-y", "-i", file_path, "-c", "copy", new_path])
@@ -140,7 +149,7 @@ def process(
         raise ValueError(f"end_time must be between 0 and {original_video_length}")
     if start_time >= end_time:
         raise ValueError(f"start_time must be less than end_time")
-    
+
     original_video = VideoSegment(
         path=file_path,
         start=start_time,
@@ -153,26 +162,29 @@ def process(
     object_detection_result = queue.Queue()
 
     # Define a wrapper function to call scene_detection and put the result in the Queue
-    def scene_detection_wrapper(file, result_queue, **kwargs):
+    def scene_detection_wrapper(f, result_queue, **kwargs):
         print("Cutting video into scene segments...")
         from scene_detection import scene_detection
-        result = list(scene_detection(file, **kwargs))
+        result = list(scene_detection(f, **kwargs))
         result_queue.put(result)
         print("Done cutting video into scene segments")
 
     # Define a wrapper function to call push_video_segments_to_object_detection and put the result in the Queue
-    def object_detection_wrapper(original_video, file, result_queue, frame_interval):
+    def object_detection_wrapper(o_video, f, result_queue, f_interval):
         print("Pushing video to object detection...")
-        result = push_video_segments_to_object_detection(original_video, file, frame_interval=frame_interval, models=models, processing_fps=int(processing_fps))
+        result = push_video_segments_to_object_detection(o_video, f, frame_interval=f_interval,
+                                                         models=models, processing_fps=int(processing_fps))
         result_queue.put(result)
         print("Done pushing video to object detection")
-    
-    scene_detection_thread = threading.Thread(target=scene_detection_wrapper, args=(file, scene_detection_result), kwargs={'adaptive_threshold': True})
+
+    scene_detection_thread = threading.Thread(target=scene_detection_wrapper, args=(file, scene_detection_result),
+                                              kwargs={'adaptive_threshold': True})
     scene_detection_thread.start()
 
     num_frames_to_process = (end_time - start_time) * original_video_fps
     frame_interval = max(300, int(num_frames_to_process / 100))
-    object_detection_thread = threading.Thread(target=object_detection_wrapper, args=(original_video, file, object_detection_result, frame_interval))
+    object_detection_thread = threading.Thread(target=object_detection_wrapper,
+                                               args=(original_video, file, object_detection_result, frame_interval))
 
     object_detection_thread.start()
     object_detection_thread.join()
@@ -180,17 +192,21 @@ def process(
     scene_detection_thread.join()
     scene_future = scene_detection_result.get()
 
-    segments = create_video_segments(file, scene_future, start_time=start_time, end_time=end_time, fps=original_video_fps, original_video_length=original_video_length)
-    total_num_frames = original_video.end_frame if original_video.end_frame else int(original_video.end * original_video_fps)
+    segments = create_video_segments(file, scene_future, start_time=start_time, end_time=end_time,
+                                     fps=original_video_fps, original_video_length=original_video_length)
+    total_num_frames = original_video.end_frame if original_video.end_frame else int(
+        original_video.end * original_video_fps)
 
     speaker_detection_futures = []
-    total_num_frames = original_video.end_frame if original_video.end_frame else int(original_video.end * original_video.fps())
-    start = original_video.start_frame if original_video.start_frame else int(original_video.start * original_video.fps())
+    total_num_frames = original_video.end_frame if original_video.end_frame else int(
+        original_video.end * original_video.fps())
+    start = original_video.start_frame if original_video.start_frame else int(
+        original_video.start * original_video.fps())
     for i in range(start, total_num_frames, frame_interval):
         start_frame = i
         end_frame = min(i + frame_interval - 1, total_num_frames - 1)
         start = start_frame / original_video_fps
-        end = end_frame / original_video_fps            
+        end = end_frame / original_video_fps
         speaker_detection_futures.append({
             "future": None,
             "start": start_frame,
@@ -211,26 +227,30 @@ def process(
         out_str = ""
         frame_size = original_video_width * original_video_height
         interpolated_face_detection_outputs = []
-        start = face_detection_outputs[0]["frame_number"]
-        end = face_detection_outputs[-1]["frame_number"]
-        for i in range(start, end + 1):
+        start_frame_number = face_detection_outputs[0]["frame_number"]
+        end_frame_number = face_detection_outputs[-1]["frame_number"]
+        for k in range(start_frame_number, end_frame_number + 1):
             frame_segment = None
-            for segment in segments:
-                segment_start_frame = segment.start_frame if segment.start_frame else int(segment.start * original_video_fps)
-                segment_end_frame = segment.end_frame if segment.end_frame else int(segment.end * original_video_fps)
-                if i >= segment_start_frame and i <= segment_end_frame:
-                    frame_segment = segment
+            for seg in segments:
+                segment_start_frame = seg.start_frame if seg.start_frame else int(
+                    seg.start * original_video_fps)
+                segment_end_frame = seg.end_frame if seg.end_frame else int(seg.end * original_video_fps)
+                if segment_start_frame <= k <= segment_end_frame:
+                    frame_segment = seg
                     break
+
             if frame_segment is None:
                 outputs_to_choose_from = face_detection_outputs
             else:
-                outputs_to_choose_from = [output for output in face_detection_outputs if output["frame_number"] >= segment_start_frame and output["frame_number"] <= segment_end_frame]
+                outputs_to_choose_from = [output for output in face_detection_outputs if
+                                          output["frame_number"] >= segment_start_frame and output[
+                                              "frame_number"] <= segment_end_frame]
             if len(outputs_to_choose_from) == 0:
                 continue
-            closest_frame = min(outputs_to_choose_from, key=lambda x: abs(x["frame_number"] - i))
+            closest_frame = min(outputs_to_choose_from, key=lambda x: abs(x["frame_number"] - k))
             # copy the boxes to avoid modifying the original and set the frame number to the current frame
             new_frame = {
-                "frame_number": i,
+                "frame_number": k,
                 "boxes": [box.copy() for box in closest_frame["boxes"]],
             }
             interpolated_face_detection_outputs.append(new_frame)
@@ -250,72 +270,87 @@ def process(
             out_str = out_str[:-1]
             out_str += "\n"
         return out_str
-    
+
     def get_relevant_face_detection_future(i):
         for j, future in enumerate(object_detection_futures):
-            if "result" not in future and future["future"].done():
-                try:
-                    res = future["future"].result()
-                    object_detection_futures[j]["result"] = res
-                except:
-                    print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
-
-                    future = get_future(object_detector.predict, file, confidence_threshold=0.25, start_frame=future["start"], end_frame=future["end"], models=models, fps=processing_fps, max_num_boxes=30)
-
-                    object_detection_futures[j]["future"] = future
-
-                    # object_detection_futures[j]["future"] = sieve.function.get(OBJECT_DETECTION_MODEL).push(
-                    #     file,
-                    #     confidence_threshold=0.25,
-                    #     start_frame=future["start"],
-                    #     end_frame=future["end"],
-                    #     models=models,
-                    #     fps=processing_fps,
-                    #     max_num_boxes=30,
-                    # )
+            if "result" not in future:
+                if isinstance(future["future"], Future):
+                    if future["future"].done():
+                        try:
+                            res = future["future"].result()
+                            object_detection_futures[j]["result"] = res
+                        except Exception as e:
+                            print(
+                                f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
+                            new_future = get_future(object_detector.predict, file, confidence_threshold=0.25,
+                                                    start_frame=future["start"], end_frame=future["end"], models=models,
+                                                    fps=processing_fps, max_num_boxes=30)
+                            object_detection_futures[j]["future"] = new_future
+                            continue
+                else:
+                    print(f"WARNING: object_detection_futures[{j}]['future'] is not a Future object")
                     continue
+
         if "result" in object_detection_futures[i]:
             return object_detection_futures[i]["result"]
         else:
             for _ in range(10):  # retry up to 10 times
                 try:
-                    res = object_detection_futures[i]["future"].result()
-                    object_detection_futures[i]["result"] = res
-                    return res
-                except:
-                    print(f"WARNING: Object detection failed, retrying... Attempt {_+1}/10")
+                    if isinstance(object_detection_futures[i]["future"], Future):
+                        res = object_detection_futures[i]["future"].result()
+                        object_detection_futures[i]["result"] = res
+                        return res
+                    else:
+                        print(f"WARNING: object_detection_futures[{i}]['future'] is not a Future object")
+                        raise Exception("Future object is invalid")
+                except Exception as e:
+                    print(f"WARNING: Object detection failed, retrying... Attempt {_ + 1}/10")
                     if "result" in object_detection_futures[i]:
                         del object_detection_futures[i]["result"]
 
-                    future = get_future(object_detector.predict, file,
-                        confidence_threshold=0.25,
-                        start_frame=object_detection_futures[i]["start"], # start 10% into the segment to avoid scene boundaries
-                        end_frame=object_detection_futures[i]["end"],
-                        models=models,
-                        # face_detection=False,
-                        # speed_boost=speed_boost,
-                        fps=processing_fps,
-                        # interpolate_frames=True,
-                        max_num_boxes=30,)
-                    object_detection_futures[i]["future"] = future
+                    new_future = get_future(object_detector.predict, file,
+                                            confidence_threshold=0.25,
+                                            start_frame=object_detection_futures[i]["start"],
+                                            end_frame=object_detection_futures[i]["end"],
+                                            models=models,
+                                            fps=processing_fps,
+                                            max_num_boxes=30)
+                    object_detection_futures[i]["future"] = new_future
             raise Exception("Object detection failed 10 times, please try again later.")
-    
+
     def get_speaker_detection_payload(start, end, fps=30):
+        speaker_detector = talknet_main.TalkNetASD()
+
         # find all indices that contain the start and end
         def refresh_speakers():
             for i, future in enumerate(speaker_detection_futures):
-                in_range = (start >= future["start"] and start <= future["end"]) or (end >= future["start"] and end <= future["end"]) or (start <= future["start"] and end >= future["end"])
-                relevant_future_done = object_detection_futures[i]["future"].done()
+                in_range = (start >= future["start"] and start <= future["end"]) or (
+                        end >= future["start"] and end <= future["end"]) or (
+                                   start <= future["start"] and end >= future["end"])
+
+                # Ensure that object_detection_futures[i]["future"] is a Future object
+                if isinstance(object_detection_futures[i]["future"], Future):
+                    relevant_future_done = object_detection_futures[i]["future"].done()
+                else:
+                    print(f"WARNING: object_detection_futures[{i}]['future'] is not a Future object")
+                    relevant_future_done = False
+
                 if not future["future"] and (in_range or relevant_future_done):
-                    # this means that we haven't pushed the video to speaker detection yet since face detection is not done
-                    # lets find the relevant face detection future, wait for it to be done, and then push the video to speaker detection
+                    # This means that we haven't pushed the video to speaker detection yet since face detection is not done
+                    # Let's find the relevant face detection future, wait for it to be done, and then push the video to speaker detection
                     res = list(get_relevant_face_detection_future(i))
                     face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps, end_time=future["end"] / fps, return_visualization=False, face_boxes=face_detection_outputs, in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
-                    speaker_detection_futures[i]["future"] = future
+                    new_future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps,
+                                            end_time=future["end"] / fps, return_visualization=False,
+                                            face_boxes=face_detection_outputs,
+                                            in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
+                    speaker_detection_futures[i]["future"] = new_future
+
         refresh_speakers()
         for i, future in enumerate(speaker_detection_futures):
-            if (start >= future["start"] and start <= future["end"]) or (end >= future["start"] and end <= future["end"]) or (start <= future["start"] and end >= future["end"]):
+            if (start >= future["start"] and start <= future["end"]) or (
+                    end >= future["start"] and end <= future["end"]) or (
+                    start <= future["start"] and end >= future["end"]):
                 for _ in range(10):  # retry up to 10 times
                     try:
                         if "result" not in speaker_detection_futures[i]:
@@ -323,17 +358,21 @@ def process(
                                 import time
                                 time.sleep(0.1)
                                 refresh_speakers()
-                            speaker_detection_futures[i]["result"] = list(speaker_detection_futures[i]["future"].result())
+                            speaker_detection_futures[i]["result"] = list(
+                                speaker_detection_futures[i]["future"].result())
                         break  # if successful, break the retry loop
                     except Exception as e:
-                        print(f"WARNING: Speaker detection failed, retrying... Attempt {_+1}/10")
+                        print(f"WARNING: Speaker detection failed, retrying... Attempt {_ + 1}/10")
                         if "result" in speaker_detection_futures[i]:
                             del speaker_detection_futures[i]["result"]
                         # recreate the future
 
                         res = list(get_relevant_face_detection_future(i))
                         face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                        future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps, end_time=future["end"] / fps, return_visualization=False, face_boxes=face_detection_outputs, in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
+                        future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps,
+                                            end_time=future["end"] / fps, return_visualization=False,
+                                            face_boxes=face_detection_outputs,
+                                            in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
                         speaker_detection_futures[i]["future"] = future
 
                 if "result" not in speaker_detection_futures[i]:
@@ -344,55 +383,72 @@ def process(
                         yield frame
 
     def refresh_futures():
+        import concurrent
+        speaker_detector = talknet_main.TalkNetASD()
+
         for i, future in enumerate(object_detection_futures):
             if "result" in future and speaker_detection_futures[i]["future"] is None:
                 res = list(get_relevant_face_detection_future(i))
                 face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps, end_time=future["end"] / fps, return_visualization=False, face_boxes=face_detection_outputs, in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
-                speaker_detection_futures[i]["future"] = future
-            # print("bro",len(speaker_detection_futures), len(object_detection_futures))
-            if speaker_detection_futures[i]["future"] and "result" not in speaker_detection_futures[i] and speaker_detection_futures[i]["future"].done():
+                new_future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps,
+                                        end_time=future["end"] / fps, return_visualization=False,
+                                        face_boxes=face_detection_outputs,
+                                        in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
+                speaker_detection_futures[i]["future"] = new_future
+
+            if speaker_detection_futures[i]["future"] and "result" not in speaker_detection_futures[i] and \
+                    speaker_detection_futures[i]["future"].done():
                 try:
                     res = speaker_detection_futures[i]["future"].result()
                     speaker_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
+                except Exception as e:
+                    print(
+                        f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
                     res = list(get_relevant_face_detection_future(i))
                     face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps, end_time=future["end"] / fps, return_visualization=False, face_boxes=face_detection_outputs, in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
-                    speaker_detection_futures[i]["future"] = future
-                    continue
-        
+                    new_future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps,
+                                            end_time=future["end"] / fps, return_visualization=False,
+                                            face_boxes=face_detection_outputs,
+                                            in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
+                    speaker_detection_futures[i]["future"] = new_future
+
         for i, future in enumerate(object_detection_futures):
-            if "result" not in future and future["future"].done():
+            if "result" not in future and isinstance(future["future"], concurrent.futures.Future) and future[
+                "future"].done():
                 try:
                     res = future["future"].result()
                     object_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
-                    future = get_future(object_detector.predict, file, confidence_threshold=0.25, start_frame=future["start"], end_frame=future["end"], models=models, fps=processing_fps, max_num_boxes=30)
-                    object_detection_futures[i]["future"] = future
-                    continue
-        
-        # loop over futures to see if any have errored, if so, recreate the future
+                except Exception as e:
+                    print(
+                        f"WARNING: Found failed object detection (frame {future['start']}-{future['end']}), retrying...")
+                    new_future = get_future(object_detector.predict, file, confidence_threshold=0.25,
+                                            start_frame=future["start"], end_frame=future["end"], models=models,
+                                            fps=processing_fps, max_num_boxes=30)
+                    object_detection_futures[i]["future"] = new_future
+
         for i, future in enumerate(speaker_detection_futures):
-            if "result" not in future and future["future"] and future["future"].done():
+            if "result" not in future and isinstance(future["future"], concurrent.futures.Future) and future[
+                "future"].done():
                 try:
                     res = future["future"].result()
                     speaker_detection_futures[i]["result"] = res
-                except:
-                    print(f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
+                except Exception as e:
+                    print(
+                        f"WARNING: Found failed speaker detection (frame {future['start']}-{future['end']}), retrying...")
                     res = list(get_relevant_face_detection_future(i))
                     face_detection_outputs = convert_face_detection_outputs_to_string(res)
-                    future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps, end_time=future["end"] / fps, return_visualization=False, face_boxes=face_detection_outputs, in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
-                    speaker_detection_futures[i]["future"] = future
-                    continue
+                    new_future = get_future(speaker_detector.predict, file, start_time=future["start"] / fps,
+                                            end_time=future["end"] / fps, return_visualization=False,
+                                            face_boxes=face_detection_outputs,
+                                            in_memory_threshold=SPEAKER_DETECTION_IN_MEMORY_THRESHOLD)
+                    speaker_detection_futures[i]["future"] = new_future
 
     print("------------------")
     print("Video Informaton")
     print("Video Length: {:.2f}s".format(original_video_length))
     print("Video FPS: {:.2f}".format(original_video_fps))
-    start_frame = original_video.start_frame if original_video.start_frame else int(original_video.start * original_video_fps)
+    start_frame = original_video.start_frame if original_video.start_frame else int(
+        original_video.start * original_video_fps)
     end_frame = original_video.end_frame if original_video.end_frame else int(original_video.end * original_video_fps)
     print("Start Time: ", start_time, f"(Frame {start_frame})")
     print("End Time: ", end_time, f"(Frame {end_frame})")
@@ -456,7 +512,7 @@ def process(
                             height=original_video_height,
                         ))
                         for frame1 in frames:
-                            yield frame1                 
+                            yield frame1
                 else:
                     if last_frame_number and frames[-1].number - last_frame_number > 1:
                         frame_to_add_back = frames[-1]
@@ -534,14 +590,23 @@ def process(
             frame_count += 1
         if not return_scene_cuts_only and batch_frames:
             yield batch_frames
-        
 
 
+def get_future(method, *args, max_workers=5, **kwargs) -> Future:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future = executor.submit(method, *args, **kwargs)
+    return future
 
 
 if __name__ == "__main__":
     file = "/home/kapsi/Downloads/video.mp4"
+
+    start = time.time()  # Record the start time
+
     for out in process(file):
         print(out)
 
+    end = time.time()  # Record the end time
+    execution_time = end - start  # Calculate the total execution time
 
+    print(f"Total execution time: {execution_time:.2f} seconds")
