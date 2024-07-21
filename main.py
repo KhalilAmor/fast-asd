@@ -597,16 +597,20 @@ def get_future(method, *args, max_workers=5, **kwargs) -> Future:
         future = executor.submit(method, *args, **kwargs)
     return future
 
-
 if __name__ == "__main__":
     file = "/home/kapsi/Downloads/video.mp4"
 
     start = time.time()  # Record the start time
 
+    output_data = []  # Initialize an empty list to store the results
+
     for out in process(file):
-        print(out)
+        output_data.append(out)  # Append each output to the list
 
     end = time.time()  # Record the end time
     execution_time = end - start  # Calculate the total execution time
+
+    # You can print or process the accumulated data here
+    print(output_data)
 
     print(f"Total execution time: {execution_time:.2f} seconds")
