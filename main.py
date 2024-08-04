@@ -17,7 +17,7 @@ object_detector = YOLOv8()
 
 
 def push_video_segments_to_object_detection(video_segment, file_path, frame_interval=600, models="yolov8l, yolov8l-face",
-                                            processing_fps=2):
+                                            processing_fps=10):
     # push the video segments to object detection for every frame_interval frames
     total_num_frames = video_segment.end_frame if video_segment.end_frame else int(
         video_segment.end * video_segment.fps())
